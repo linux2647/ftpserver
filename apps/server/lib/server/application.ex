@@ -6,7 +6,7 @@ defmodule Server.Application do
   use Application
 
   def start(_type, _args) do
-    port = String.to_integer(System.get_env("PORT") || "21")
+    port = String.to_integer(System.get_env("FTP_PORT") || "21")
 
     # List all child processes to be supervised
     children = [
