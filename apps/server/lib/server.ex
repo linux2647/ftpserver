@@ -31,7 +31,7 @@ defmodule Server do
   defp serve(socket, worker) do
     msg = with {:ok, data} <- read_line(socket),
                {:ok, command} <- Server.Command.parse(data),
-               do: Server.Command.run(command, worker)
+               do: Server.Command.run(command, worker, %{write_callback: fn (code, message) -> write_line(socket, {:ok, {code, message}}) end})
 
     response = write_line(socket, msg) 
 

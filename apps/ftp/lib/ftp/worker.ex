@@ -2,6 +2,7 @@ require Logger
 
 defmodule FTP.Worker do
   use Agent
+  use Bitwise
 
   def start_link(_opts) do
     raw_listen_addr = System.get_env("FTP_ADDR") || "127.0.0.1"
@@ -55,20 +56,37 @@ defmodule FTP.Worker do
   end
 
   def pasv(agent) do
-    {:ok, socket} = :gen_tcp.listen(0, [:binary, packet: :line, active: false, reuseaddr: true])
+    {:ok, pasvconn} = PassiveConnection.start_link([])
     {:ok, host} = Agent.get_and_update(agent, fn (state) ->
       host = Map.get(state, :listen_addr)
       existing_socket = Map.get(state, :pasv)
       if existing_socket != nil do
-        :gen_tcp.close existing_socket
+        PassiveConnection.close(pasvconn)
       end
 
-      new_state = Map.put(state, :pasv, socket)
+      new_state = Map.put(state, :pasv, pasvconn)
       {{:ok, host}, new_state}
     end)
 
-    {:ok, port} = :inet.port socket
-    {:ok, {host, port}}
+    {:ok, port} = PassiveConnection.get_port(pasvconn)
+    pasv_string = ip_port_to_pasv(host, port)
+    {:ok, pasv_string}
+  end
+
+  def list(agent, write_back) do
+    pasv_conn = Agent.get(agent, fn (state) -> Map.get(state, :pasv) end)
+    unless pasv_conn == nil do
+      write_back.(150, "Opening ASCII mode data connection for file list")
+
+      current_path = get_current_path(agent)
+      listing = get_listing(current_path)
+      PassiveConnection.write(pasv_conn, listing)
+      PassiveConnection.close(pasv_conn)
+
+      {:ok, "Transfer complete"}
+    else
+      {:error, "Passive mode required"}
+    end
   end
 
   defp safe_path_join(state, path) do
@@ -79,5 +97,28 @@ defmodule FTP.Worker do
     full_path = Path.join(base, new_wd)
     
     {new_wd, full_path}
+  end
+
+  defp get_current_path(agent) do
+    state = Agent.get(agent, fn (state) -> state end)
+    safe_path_join(state, ".")
+  end
+
+  defp ip_port_to_pasv(ip, port) do
+    upper_port = port >>> 8
+    lower_port = port &&& 255
+    {a, b, c, d} = ip
+    # Convert IP and port (e.g. 64943) to (192,168,1,22,253,175)
+    "#{a},#{b},#{c},#{d},#{upper_port},#{lower_port}"
+  end
+
+  defp get_listing(path) do
+    {message, status} = System.cmd("ls", ["-l", path], stderr_to_stdout: true)
+    if status == 0 do
+      [_total | listing] = String.split(String.trim(message), "\n")
+      listing |> Enum.join("\n")
+    else
+      message
+    end
   end
 end
