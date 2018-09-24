@@ -101,7 +101,8 @@ defmodule FTP.Worker do
 
   defp get_current_path(agent) do
     state = Agent.get(agent, fn (state) -> state end)
-    safe_path_join(state, ".")
+    {_, path} = safe_path_join(state, ".")
+    path
   end
 
   defp ip_port_to_pasv(ip, port) do
