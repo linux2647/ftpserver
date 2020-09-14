@@ -1,8 +1,8 @@
-require Logger
-
 defmodule FTP.Worker do
   use Agent
   use Bitwise
+
+  require Logger
 
   def start_link(_opts) do
     raw_listen_addr = System.get_env("FTP_ADDR") || "127.0.0.1"
@@ -17,6 +17,21 @@ defmodule FTP.Worker do
         listen_addr: listen_addr,
         pasv: nil,
       } end)
+  end
+
+  def stat(agent) do
+    listen_addr = Agent.get(agent, &Map.get(&1, :listen_addr))
+    string_addr = listen_addr |> Tuple.to_list() |> Enum.join(".")
+    message = "FTPServer, written in Elixir; listening at #{string_addr}"
+
+    pasv = Agent.get(agent, &Map.get(&1, :pasv))
+    message = if pasv != nil do
+      message <> "; passive connection open"
+    else
+      message
+    end
+
+    {:ok, message}
   end
 
   def cwd(agent, path) do
@@ -61,7 +76,7 @@ defmodule FTP.Worker do
       host = Map.get(state, :listen_addr)
       existing_socket = Map.get(state, :pasv)
       if existing_socket != nil do
-        PassiveConnection.close(pasvconn)
+        PassiveConnection.close(existing_socket)
       end
 
       new_state = Map.put(state, :pasv, pasvconn)
@@ -80,7 +95,41 @@ defmodule FTP.Worker do
 
       current_path = get_current_path(agent)
       listing = get_listing(current_path)
-      PassiveConnection.write(pasv_conn, listing)
+      :ok = PassiveConnection.write(pasv_conn, listing)
+      PassiveConnection.close(pasv_conn)
+
+      {:ok, "Transfer complete"}
+    else
+      {:error, "Passive mode required"}
+    end
+  end
+
+  def retrieve(agent, write_back, path) do
+    pasv_conn = Agent.get(agent, fn (state) -> Map.get(state, :pasv) end)
+    unless pasv_conn == nil do
+      write_back.(150, "Opening Binary mode data connection for file reading")
+
+      state = Agent.get(agent, fn (state) -> state end)
+      {_, file_path} = safe_path_join(state, path)
+      {:ok, file_contents} = File.read(file_path)
+      :ok = PassiveConnection.write(pasv_conn, file_contents)
+      PassiveConnection.close(pasv_conn)
+
+      {:ok, "Transfer complete"}
+    else
+      {:error, "Passive mode required"}
+    end
+  end
+
+  def store(agent, write_back, path) do
+    pasv_conn = Agent.get(agent, fn (state) -> Map.get(state, :pasv) end)
+    if pasv_conn != nil do
+      write_back.(221, "Opening Binary mode data connection for file storing")
+
+      state = Agent.get(agent, fn (state) -> state end)
+      {_, file_path} = safe_path_join(state, path)
+      {:ok, file_contents} = PassiveConnection.read(pasv_conn)
+      :ok = File.write(file_path, file_contents)
       PassiveConnection.close(pasv_conn)
 
       {:ok, "Transfer complete"}
@@ -95,7 +144,7 @@ defmodule FTP.Worker do
 
     new_wd = Path.expand(path, cwd)
     full_path = Path.join(base, new_wd)
-    
+
     {new_wd, full_path}
   end
 

@@ -48,16 +48,16 @@ defmodule PassiveConnection do
   @impl true
   def handle_call({:write, data}, _from, listening_socket) do
     {:ok, socket} = accept(listening_socket)
-    :gen_tcp.send(socket, data)
+    :ok = :gen_tcp.send(socket, data)
     :gen_tcp.close(socket)
     :gen_tcp.close(listening_socket)
-    {:noreply, listening_socket}
+    {:reply, :ok, listening_socket}
   end
 
   @impl true
   def handle_call({:close}, _from, listening_socket) do
     :gen_tcp.close(listening_socket)
-    {:noreply, listening_socket}
+    {:reply, :ok, listening_socket}
   end
 
   defp accept(socket) do

@@ -9,6 +9,8 @@ defmodule Server.Command do
       ["RMDA", path] -> {:ok, {:rm_tree, path}}
       ["PASV"] -> {:ok, {:pasv}}
       ["LIST"] -> {:ok, {:list}}
+      ["RETR", path] -> {:ok, {:retrieve, path}}
+      ["STOR", path] -> {:ok, {:store, path}}
       ["HELP"] -> {:ok, {:help}}
       ["STAT"] -> {:ok, {:status}}
       ["QUIT"] -> {:ok, {:quit}}
@@ -16,8 +18,6 @@ defmodule Server.Command do
       _ -> {:error, {:unknown_command, ""}}
     end
   end
-
-  def run(command, worker, opts)
 
   def run({:noop}, _worker, _opts) do
     {:ok, {200, "NOOP command successful"}}
@@ -68,6 +68,27 @@ defmodule Server.Command do
     case FTP.Worker.list(worker, Map.get(opts, :write_callback)) do
       {:ok, message} -> {:ok, {226, message}}
       {:error, error} -> {:error, {550, "Unable to list directory contents: #{inspect error}"}}
+    end
+  end
+
+  def run({:retrieve, path}, worker, opts) do
+    case FTP.Worker.retrieve(worker, Map.get(opts, :write_callback), path) do
+      {:ok, message} -> {:ok, {226, message}}
+      {:error, error} -> {:error, {550, "Unable to retrieve file: #{inspect error}"}}
+    end
+  end
+
+  def run({:store, path}, worker, opts) do
+    case FTP.Worker.store(worker, Map.get(opts, :write_callback), path) do
+      {:ok, message} -> {:ok, {226, message}}
+      {:error, error} -> {:error, {550, "Unable to retrieve file: #{inspect error}"}}
+    end
+  end
+
+  def run({:status}, worker, _opts) do
+    case FTP.Worker.stat(worker) do
+      {:ok, message} -> {:ok, {211, message}}
+      {:error, error} -> {:error, {451, "Unable to retrieve status: #{inspect error}"}}
     end
   end
 
